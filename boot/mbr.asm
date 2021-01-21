@@ -20,8 +20,8 @@ SECTION .text
 ; subroutine: ERROR_HALT
 ; stops machine when error occured
 ERROR_HALT:
-     jmp  $
-     jmp  ERROR_HALT
+     hlt
+     jmp ERROR_HALT
 
 ; subroutine: CLEAR_SCREEN
 ; fills the entire video buffer with zeros
