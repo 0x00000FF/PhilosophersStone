@@ -158,9 +158,11 @@ MBR_START:
     call CLEAR_SCREEN
 
     ; identify disk status and reset
-    call GET_CURRENT_DISK 
+    call IDENTIFY_DISK
+    call RESET_DISK 
 
     ; read bootloader file from the disk
+    call READ_BOOTLOADER
 
     ; start primary system bootloader
     jmp  LDR_SEG:0x0000
