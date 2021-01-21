@@ -4,11 +4,22 @@
 ; This bootloader is used for legacy MBR to call PSBoot Application
 ; UEFI system with GPT partitions doesn't use it
 ;
+; langauge: nasm (intel), i8086
+;
 
+; segment macro
 %define    CODE_SEG    0x07C0
 %define    VIDEO_SEG   0xB800
-%define    LDR_SEG     0x1000
+%define    BOOT_SEG    0x1000
 %define    STACK_BEGIN 0xFFFF
+
+; macros for partition table
+; partition number range is 0-3
+%define    P_IS_BOOTABLE    0 
+%define    P_CYLINDER       1
+%define    P_HEAD           2
+%define    P_SECTOR         3
+%define    P_PARTITION_TYPE 4
 
 [BITS   16]
 [ORG  0x00]
@@ -34,7 +45,7 @@ CLEAR_SCREEN:
     xor  si, si
 
 _CLEAR_SCREEN_LOOP:
-    mov  word [ es:si ], 0x0A00
+    mov  word [ es:si ], 0x0C00
     add              si, 2
     
     cmp              si, 80 * 25 * 2    
@@ -74,11 +85,10 @@ PRINT_SCREEN:
     push cx
     push dx
 
-    ; teletype service, with light red color
+    ; teletype service
     mov  ah, 0xE
     xor  bx, bx
     xor  cx, cx
-    mov  bl, 0xC
  
     ; set address from arg1
     mov  si, word [bp + 4]
@@ -104,21 +114,16 @@ _PRINT_SCREEN_END:
 
     ret
 
-; subroutine: IDENTIFY_DISK
-; identifies disk containing currently runing mbr code
-IDENTIFY_DISK:
-    ret
-
 ; subroutine: RESET_DISK
-; reset the given disk
+; reset the booted disk
 RESET_DISK:
     push ax
     push dx
 
     xor  ax, ax
-    xor  bx, bx
     xor  dx, dx
-    mov  bl, 0xC
+
+    mov  bl, byte[DISK_ID]
     int  0x13
     
     jc   SUB_ERR_RESET_DISK
@@ -132,9 +137,56 @@ RESET_DISK:
         call PRINT_SCREEN
         call ERROR_HALT
 
+; subroutine: READ_DISKINFO
+; read sector, head, track count from disk
+READ_DISKINFO:
+    push ax
+    push bx
+    push cx
+    push dx
+
+    mov ah, 0x8
+    mov dl, byte[DISK_ID]
+    int 0x13
+
+    jc  SUB_ERR_READ_DISKINFO
+
+    ; store returned values to lower byte
+    mov  byte  [NUM_TRACK], ch
+    mov  byte [NUM_SECTOR], cl
+    mov  byte   [NUM_HEAD], dh
+
+    pop  dx
+    pop  cx
+    pop  bx
+    pop  ax
+    ret
+
+    SUB_ERR_READ_DISKINFO:
+        push DISK_READINFO_ERROR
+        call PRINT_SCREEN
+        call ERROR_HALT
+
+; subroutine: FIND_BOOTSECTOR
+; find bootsector to determine where to boot
+FIND_BOOTSECTOR:
+    ; TODO: iterate partition tables inside of MBR
+    ;       determine the partition is bootable or not
+    ;       get the first bootable bootsector
+    ;       return CHS address of the bootsector
+
+    ret
+
+    SUB_ERR_NO_BOOTABLES:
+        push NO_BOOTSECT_ERROR
+        call PRINT_SCREEN
+        call ERROR_HALT      
+
 ; subroutine: READ_BOOTLOADER
-; 
+; read bootsector 
 READ_BOOTLOADER:
+    ; TODO: read bootsector into memory from determined CHS
+    ;       at FIND_BOOTSECTOR    
     
     ret
 
@@ -145,6 +197,10 @@ READ_BOOTLOADER:
 
 ; start loading os loader from disk
 MBR_START:
+    ; store disk identification
+    ; BIOS returns disk ID to dl before executing MBR code
+    mov byte[DISK_ID], dl
+
     ; set code and video buffer segments
     mov ax, CODE_SEG
     mov ds, ax
@@ -160,30 +216,38 @@ MBR_START:
     ; begin clear screen
     call CLEAR_SCREEN
 
-    ; identify disk status and reset
-    call IDENTIFY_DISK
+    ; reset disk
     call RESET_DISK 
+
+    ; find bootsector
+    call FIND_BOOTSECTOR
 
     ; read bootloader file from the disk
     call READ_BOOTLOADER
 
     ; start primary system bootloader
-    jmp  LDR_SEG:0x0000
+    jmp  BOOT_SEG:0x0000
 
-    ; variables    
+    ; variables
+    DISK_ID:         db 0xFF
+    
     NUM_SECTOR:      dw 0x0000
     NUM_HEAD:        dw 0x0000
     NUM_TRACK:       dw 0x0000
 
     ; constants
-    DISK_RESET_ERROR: db "disk reset error", 0x00
-    DISK_READ_ERROR:  db "disk read error", 0x00
-
-
+    NO_BOOTSECT_ERROR:    db "no bootable disk found", 0x00
+    DISK_RESET_ERROR:     db "disk reset error", 0x00
+    DISK_READINFO_ERROR:  db "disk read info error", 0x00 
+    DISK_READ_ERROR:      db "disk read error", 0x00
 
 ; MBR formatting
 ; This should not be written except 0x55, 0xAA at 511 byte to preserve
 ; existing partition tables 
 
+%ifdef DO_NOT_CLEAR_MBR
+
 times (510 - ($ - $$))       db 0x00
 dw    0xAA55                 ;little endian 0x55 0xAA
+
+%endif
