@@ -44,6 +44,8 @@ _CLEAR_SCREEN_LOOP:
     pop  es
     ret
 
+; subroutine: RESET_CURSOR
+; reset cursor position to page 0, col 0, row 0
 RESET_CURSOR:
     push ax
     push bx
@@ -131,7 +133,7 @@ RESET_DISK:
         call ERROR_HALT
 
 ; subroutine: READ_BOOTLOADER
-;
+; 
 READ_BOOTLOADER:
     
     ret
@@ -141,6 +143,7 @@ READ_BOOTLOADER:
         call PRINT_SCREEN
         call ERROR_HALT
 
+; start loading os loader from disk
 MBR_START:
     ; set code and video buffer segments
     mov ax, CODE_SEG
