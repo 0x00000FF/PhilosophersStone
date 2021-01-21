@@ -5,6 +5,8 @@
 ; UEFI system with GPT partitions doesn't use it
 ;
 ; langauge: nasm (intel), i8086
+; assemble: nasm mbr.asm
+;           nasm -DDO_CLEAR_MBR mbr.asm  (if you need to clear MBR)
 ;
 
 ; segment macro
@@ -245,7 +247,7 @@ MBR_START:
 ; This should not be written except 0x55, 0xAA at 511 byte to preserve
 ; existing partition tables 
 
-%ifdef DO_NOT_CLEAR_MBR
+%ifdef DO_CLEAR_MBR
 
 times (510 - ($ - $$))       db 0x00
 dw    0xAA55                 ;little endian 0x55 0xAA
