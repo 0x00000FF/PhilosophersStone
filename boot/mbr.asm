@@ -9,6 +9,9 @@
 ;           nasm -DDO_CLEAR_MBR mbr.asm  (if you need to clear MBR)
 ;
 
+; total size of psboot app
+%define    PSBOOT_SIZE 0x0001
+
 ; segment macro
 %define    CODE_SEG    0x07C0
 %define    VIDEO_SEG   0xB800
@@ -172,27 +175,84 @@ READ_DISKINFO:
 ; subroutine: FIND_BOOTSECTOR
 ; find bootsector to determine where to boot
 FIND_BOOTSECTOR:
+    cmp byte [DISK_ID], 0x00
+    ; DISK_ID should be 0 if booted from floppy disk
+    je  SUB_FLOPPY_DISK
+
     ; TODO: iterate partition tables inside of MBR
     ;       determine the partition is bootable or not
     ;       get the first bootable bootsector
     ;       return CHS address of the bootsector
 
+_FIND_BOOTSECTOR_END:
     ret
+
+    ; set bootsector position from floppy disk
+    SUB_FLOPPY_DISK:
+        mov  byte  [NUM_TRACK+1], 0x0
+        mov  byte [NUM_SECTOR+1], 0x2
+        mov  byte   [NUM_HEAD+1], 0x0
+
+        jmp  _FIND_BOOTSECTOR_END
 
     SUB_ERR_NO_BOOTABLES:
         push NO_BOOTSECT_ERROR
         call PRINT_SCREEN
         call ERROR_HALT      
 
-; subroutine: READ_BOOTLOADER
+; subroutine: READ_BOOTSECTOR
 ; read bootsector 
-READ_BOOTLOADER:
+READ_BOOTSECTOR:
     ; TODO: read bootsector into memory from determined CHS
     ;       at FIND_BOOTSECTOR    
+    mov  si, BOOT_SEG
+    mov  es, si
+
+    mov  bx, 0x0000
+    mov  di, word [PSBOOT_SIZE]
+ 
+_READ_LOOP_BEGIN:
+    ; all sectors are read?
+    cmp  di, 0x0
+    je   _READ_END
+    sub  di, 0x1
+
+    ; call BIOS disk read
+    mov  ah, 0x2
+    mov  al, 0x1
+    mov  ch, byte [NUM_TRACK+1]
+    mov  cl, byte [NUM_SECTOR+1]
+    mov  dh, byte [NUM_HEAD+1]
+    xor  dl, dl
+    int  0x13
+    jc   SUB_ERR_READ_BOOTSECTOR
     
+    ; increase sector address
+    add  si, 0x0020
+    mov  es, si
+
+    ; is last sector
+    mov  al, byte [NUM_SECTOR + 1]
+    add  al, 0x1
+    mov  byte [NUM_SECTOR + 1], al
+    cmp  al, 19                               ; why?
+    jl   _READ_LOOP_BEGIN
+    
+    ; toggle head when the last sector reached
+    xor  byte [NUM_HEAD+1], 0x1
+    mov  byte [NUM_SECTOR+1], 0x1
+    
+    ; check head state (head == 0) then increate track number
+    cmp  byte [NUM_HEAD+1], 0x0
+    jne  _READ_LOOP_BEGIN
+
+    add  byte [NUM_TRACK+1], 0x1
+    jmp  _READ_LOOP_BEGIN
+    
+_READ_END:
     ret
 
-    SUB_ERR_READ_BOOTLOADER:
+    SUB_ERR_READ_BOOTSECTOR:
         push DISK_READ_ERROR
         call PRINT_SCREEN
         call ERROR_HALT
@@ -224,8 +284,8 @@ MBR_START:
     ; find bootsector
     call FIND_BOOTSECTOR
 
-    ; read bootloader file from the disk
-    call READ_BOOTLOADER
+    ; read bootsector from the disk
+    call READ_BOOTSECTOR
 
     ; start primary system bootloader
     jmp  BOOT_SEG:0x0000
